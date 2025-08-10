@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fill the Glass - Line Draw Game</title>
+<style>
+  body {
+    margin: 0; background: #87ceeb; /* sky blue */
+    display: flex; flex-direction: column; align-items: center;
+    font-family: Arial, sans-serif;
+    user-select: none;
+  }
+  h1 {
+    margin: 10px 0 0;
+    color: #005577;
+    text-align: center;
+  }
+  #game {
+    position: relative;
+    margin: 10px 0;
+    width: 320px;
+    height: 480px;
+    background: #a2d5f2;
+    border: 2px solid #004466;
+    border-radius: 10px;
+    touch-action: none;
+  }
+  canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 320px; height: 480px;
+    border-radius: 10px;
+  }
+  #ui {
+    width: 320px;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 5px 10px;
+    color: #004466;
+  }
+  button {
+    background: #0088cc;
+    border: none;
+    color: white;
+    font-weight: bold;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  button:disabled {
+    background: #999;
+    cursor: default;
+  }
+  #levelText {
+    font-weight: bold;
+  }
+  #message {
+    margin-top: 5px;
+    color: #004466;
+    font-weight: bold;
+    min-height: 24px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<h1>Fill the Glass</h1>
+<div id="game">
+  <canvas id="lines"></canvas>
+  <canvas id="water"></canvas>
+  <canvas id="glass"></canvas>
+</div>
+<div id="ui">
+  <button id="resetBtn">Reset Line</button>
+  <div id="levelText">Level 1 / 10</div>
+  <button id="nextBtn" disabled>Next Level</button>
+</div>
+<div id="message"></div>
+
+<script>
+(() => {
+  const canvasLines = document.getElementById('lines');
+  const ctxLines = canvasLines.getContext('2d');
+  const canvasWater = document.getElementById('water');
+  const ctxWater = canvasWater.getContext('2d');
+  const canvasGlass = document.getElementById('glass');
+  const ctxGlass = canvasGlass.getContext('2d');
+  const resetBtn = document.getElementById('resetBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const levelText = document.getElementById('levelText');
+  const message = document.getElementById('message');
+
+  const WIDTH = 320;
+  const HEIGHT = 480;
+  [canvasLines, canvasWater, canvasGlass].forEach(c => {
+    c.width = WIDTH;
+    c.height = HEIGHT;
+  });
+
+  // Game state
+  let currentLevel = 1;
+  const MAX_LEVEL = 10;
+
+  // Store lines as arrays of points [{x,y}]
+  let drawing = false;
+  let linePoints = [];
+
+  // Water particles
+  const waterParticles = [];
+
+  // Level definitions: target fill percent (0 to 1)
+  // Also glass shapes differ per level (height)
+  const levels = [
+    {target: 0.3, glassHeight: 250},
+    {target: 0.4, glassHeight: 260},
+    {target: 0.5, glassHeight: 270},
+    {target: 0.6, glassHeight: 280},
+    {target: 0.65, glassHeight: 290},
+    {target: 0.7, glassHeight: 300},
+    {target: 0.75, glassHeight: 310},
+    {target: 0.8, glassHeight: 320},
+    {target: 0.85, glassHeight: 330},
+    {target: 0.9, glassHeight: 340}
+  ];
+
+  // Glass position
+  const glassX = WIDTH / 2 - 60;
+  let glassY = HEIGHT - 50; // base y
+  const glassWidth = 120;
+
+  // Water spout position (top left corner)
+  const spoutX = 50;
+  const spoutY = 50;
+
+  // Water flow parameters
+  const WATER_FLOW_RATE = 1.5; // particles per frame approx
+
+  // Save current level in localStorage
+  function saveProgress() {
+    localStorage.setItem('fillGlassLevel', currentLevel);
+  }
+  function loadProgress() {
+    const saved = parseInt(localStorage.getItem('fillGlassLevel'));
+    if(saved && saved >= 1 && saved <= MAX_LEVEL) {
+      currentLevel = saved;
+    }
+  }
+
+  // Clear canvases
+  function clearCanvases() {
+    ctxLines.clearRect(0,0,WIDTH,HEIGHT);
+    ctxWater.clearRect(0,0,WIDTH,HEIGHT);
+    ctxGlass.clearRect(0,0,WIDTH,HEIGHT);
+  }
+
+  // Draw glass outline and water inside
+  function drawGlass() {
+    const levelData = levels[currentLevel-1];
+    glassY = HEIGHT - levelData.glassHeight;
+
+    // Glass outline
+    ctxGlass.clearRect(0,0,WIDTH,HEIGHT);
+    ctxGlass.lineWidth = 4;
+    ctxGlass.strokeStyle = '#004466';
+    ctxGlass.fillStyle = '#cceeff';
+
+    // Draw glass shape: rectangle with rounded bottom corners
+    ctxGlass.beginPath();
+    ctxGlass.moveTo(glassX, glassY);
+    ctxGlass.lineTo(glassX, HEIGHT - 50);
+    ctxGlass.quadraticCurveTo(glassX + glassWidth/2, HEIGHT - 10, glassX + glassWidth, HEIGHT - 50);
+    ctxGlass.lineTo(glassX + glassWidth, glassY);
+    ctxGlass.closePath();
+    ctxGlass.fill();
+    ctxGlass.stroke();
+
+    // Draw water inside (filled part)
+    const waterHeight = waterLevel * levelData.glassHeight;
+
+    ctxGlass.fillStyle = '#3399ff';
+    ctxGlass.beginPath();
+    ctxGlass.moveTo(glassX + 4, HEIGHT - 50);
+    ctxGlass.lineTo(glassX + 4, HEIGHT - 50 - waterHeight);
+    ctxGlass.lineTo(glassX + glassWidth - 4, HEIGHT - 50 - waterHeight);
+    ctxGlass.lineTo(glassX + glassWidth - 4, HEIGHT - 50);
+    ctxGlass.closePath();
+    ctxGlass.fill();
+  }
+
+  // Draw spout
+  function drawSpout() {
+    ctxLines.fillStyle = '#555';
+    ctxLines.strokeStyle = '#333';
+    ctxLines.lineWidth = 3;
+    ctxLines.beginPath();
+    ctxLines.moveTo(spoutX, spoutY);
+    ctxLines.lineTo(spoutX + 30, spoutY);
+    ctxLines.lineTo(spoutX + 30, spoutY + 20);
+    ctxLines.lineTo(spoutX, spoutY + 20);
+    ctxLines.closePath();
+    ctxLines.fill();
+    ctxLines.stroke();
+  }
+
+  // Draw current line
+  function drawLine() {
+    ctxLines.lineWidth = 5;
+    ctxLines.strokeStyle = '#8844cc';
+    ctxLines.lineJoin = 'round';
+    ctxLines.lineCap = 'round';
+    ctxLines.beginPath();
+    if(linePoints.length > 0) {
+      ctxLines.moveTo(linePoints[0].x, linePoints[0].y);
+      for(let i=1; i<linePoints.length; i++) {
+        ctxLines.lineTo(linePoints[i].x, linePoints[i].y);
+      }
+    }
+    ctxLines.stroke();
+  }
+
+  // Check if point is inside glass shape (approximate)
+  function pointInGlass(x,y) {
+    // Simple rectangle and rounded bottom check
+    if(x < glassX || x > glassX + glassWidth) return false;
+    if(y < glassY) return false;
+    if(y > HEIGHT - 50) return false;
+
+    // Approximate rounded bottom curve
+    if(y > HEIGHT - 65) {
+      const centerX = glassX + glassWidth/2;
+      const radius = 30;
+      const dist = Math.sqrt((x - centerX)**2 + (y - (HEIGHT - 50))**2);
+      if(dist > radius) return false;
+    }
+    return true;
+  }
+
+  // Water particle class
+  class WaterParticle {
+    constructor(x,y) {
+      this.x = x;
+      this.y = y;
+      this.vx = 0;
+      this.vy = 0;
+      this.radius = 4;
+      this.alive = true;
+    }
+    update() {
+      // Gravity
+      this.vy += 0.15;
+      // Move
+      this.x += this.vx;
+      this.y += this.vy;
+
+      // Check collision with line (simple proximity)
+      for(let i=0; i<linePoints.length-1; i++) {
+        const p1 = linePoints[i];
+        const p2 = linePoints[i+1];
+        const dist = distanceToSegment({x:this.x, y:this.y}, p1, p2);
+        if(dist < this.radius + 3) {
+          // Reflect velocity - simple bounce effect
+          this.vx = (p2.y - p1.y) * 0.3;
+          this.vy = (p1.x - p2.x) * 0.3;
+          // Push particle away
+          this.x += this.vx;
+          this.y += this.vy;
+        }
+      }
+
+      // Check if inside glass bounds
+      if(pointInGlass(this.x, this.y)) {
+        // Slow down water inside glass (simulate settling)
+        this.vx *= 0.3;
+        this.vy *= 0.3;
+        // Don't let it fall below glass bottom
+        if(this.y > HEIGHT - 50 - waterLevel * levels[currentLevel-1].glassHeight) {
+          this.y = HEIGHT - 50 - waterLevel * levels[currentLevel-1].glassHeight;
+          this.vx = 0;
+          this.vy = 0;
+        }
+      }
+
+      // Remove particle if off screen bottom
+      if(this.y > HEIGHT + 20) {
+        this.alive = false;
+      }
+    }
+    draw(ctx) {
+      ctx.fillStyle = '#3399ff';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // Distance from point p to segment p1-p2
+  function distanceToSegment(p, p1, p2) {
+    const l2 = (p2.x - p1.x)**2 + (p2.y - p1.y)**2;
+    if(l2 === 0) return Math.hypot(p.x - p1.x, p.y - p1.y);
+    let t = ((p.x - p1.x)*(p2.x - p1.x) + (p.y - p1.y)*(p2.y - p1.y))/l2;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (p1.x + t*(p2.x - p1.x)), p.y - (p1.y + t*(p2.y - p1.y)));
+  }
+
+  // Water fill level (0 to 1)
+  let waterLevel = 0;
+
+  // Water particles per frame spawn accumulator
+  let spawnAccumulator = 0;
+
+  // Game status
+  let levelComplete = false;
+
+  // UI update
+  function updateUI() {
+    levelText.textContent = `Level ${currentLevel} / ${MAX_LEVEL}`;
+    nextBtn.disabled = !levelComplete;
+  }
+
+  // Reset current line and water
+  function resetLevel() {
+    linePoints = [];
+    waterParticles.length = 0;
+    waterLevel = 0;
+    spawnAccumulator = 0;
+    levelComplete = false;
+    message.textContent = '';
+    nextBtn.disabled = true;
+    updateUI();
+    drawAll();
+  }
+
+  // Next level
+  function nextLevel() {
+    if(currentLevel < MAX_LEVEL) {
+      currentLevel++;
+      saveProgress();
+      resetLevel();
+    } else {
+      message.textContent = "You completed all levels! 🎉";
+      nextBtn.disabled = true;
+    }
+  }
+
+  // Draw everything
+  function drawAll() {
+    clearCanvases();
+    drawSpout();
+    drawLine();
+    drawGlass();
+  }
+
+  // Main update loop
+  function update() {
+    if(levelComplete) return;
+
+    // Spawn water particles near spout
+    spawnAccumulator += WATER_FLOW_RATE;
+    while(spawnAccumulator >= 1) {
+      waterParticles.push(new WaterParticle(spoutX + 15, spoutY + 20));
+      spawnAccumulator--;
+    }
+
+    // Update water particles
+    for(let p of waterParticles) p.update();
+
+    // Remove dead particles
+    for(let i = waterParticles.length -1; i >= 0; i--) {
+      if(!waterParticles[i].alive) waterParticles.splice(i,1);
+    }
+
+    // Calculate waterLevel by counting particles inside glass bottom area
+    const levelData = levels[currentLevel-1];
+    const glassBottomY = HEIGHT - 50;
+    const glassTopY = glassBottomY - levelData.glassHeight;
+
+    let particlesInside = 0;
+    for(let p of waterParticles) {
+      if(p.x > glassX && p.x < glassX + glassWidth && p.y > glassTopY && p.y < glassBottomY) {
+        particlesInside++;
+      }
+    }
+
+    // Approximate max particles that fill glass fully
+    const maxParticles = 120;
+
+    waterLevel = Math.min(1, particlesInside / maxParticles);
+
+    // Check level completion if waterLevel >= target
+    if(waterLevel >= levelData.target) {
+      levelComplete = true;
+      message.textContent = 'Level Complete! Tap Next Level.';
+      nextBtn.disabled = false;
+    }
+
+    drawAll();
+
+    // Draw water particles on water canvas (above line)
+    ctxWater.clearRect(0,0,WIDTH,HEIGHT);
+    for(let p of waterParticles) p.draw(ctxWater);
+
+    requestAnimationFrame(update);
+  }
+
+  // Input handlers
+  function pointerDown(e) {
+    if(levelComplete) return;
+    drawing = true;
+    linePoints = [];
+    addPoint(e);
+  }
+  function pointerMove(e) {
+    if(!drawing) return;
+    addPoint(e);
+  }
+  function pointerUp(e) {
+    drawing = false;
+  }
+  function addPoint(e) {
+    const rect = canvasLines.getBoundingClientRect();
+    let x, y;
+    if(e.touches) {
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    }
+    // Limit points to canvas bounds
+    x = Math.min(Math.max(0,x), WIDTH);
+    y = Math.min(Math.max(0,y), HEIGHT);
+    linePoints.push({x,y});
+    drawAll();
+  }
+
+  resetBtn.addEventListener('click', () => {
+    if(levelComplete) return;
+    linePoints = [];
+    drawAll();
+  });
+
+  nextBtn.addEventListener('click', () => {
+    nextLevel();
+  });
+
+  // Attach pointer events for mouse and touch
+  canvasLines.addEventListener('pointerdown', pointerDown);
+  canvasLines.addEventListener('pointermove', pointerMove);
+  window.addEventListener('pointerup', pointerUp);
+
+  // Initialize game
+  loadProgress();
+  resetLevel();
+  update();
+})();
+</script>
+</body>
+</html>
