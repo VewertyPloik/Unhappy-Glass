@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sad Glass Game</title>
+<style>
+  body {
+    background: #d0f0ff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    font-family: sans-serif;
+    margin: 0;
+    overflow: hidden;
+  }
+  canvas {
+    background: #fff;
+    border: 2px solid #000;
+    touch-action: none;
+  }
+  #controls {
+    margin-top: 10px;
+  }
+  button {
+    padding: 10px;
+    margin: 5px;
+    font-size: 16px;
+  }
+</style>
+</head>
+<body>
+<h2>😢 Sad Glass Game</h2>
+<canvas id="game" width="400" height="600"></canvas>
+<div id="controls">
+  <button id="releaseBtn">Release Water</button>
+  <button id="resetBtn">Reset</button>
+  <button id="nextBtn">Next Level</button>
+</div>
+<p id="message"></p>
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+
+  const WIDTH = canvas.width;
+  const HEIGHT = canvas.height;
+
+  let waterParticles = [];
+  let waterReleased = false;
+  let waterLevel = 0;
+  let levelComplete = false;
+
+  let fingerX = WIDTH / 2;
+  let fingerY = 100;
+
+  const levels = [
+    { glassHeight: 120, target: 0.5, obstacles: [] },
+    { glassHeight: 120, target: 0.6, obstacles: [{x:150,y:350,w:100,h:10}] },
+    { glassHeight: 140, target: 0.55, obstacles: [{x:100,y:300,w:200,h:10}] },
+    { glassHeight: 140, target: 0.65, obstacles: [{x:200,y:250,w:80,h:10}] },
+    { glassHeight: 160, target: 0.5, obstacles: [{x:150,y:400,w:100,h:10},{x:250,y:300,w:100,h:10}] },
+    { glassHeight: 160, target: 0.7, obstacles: [{x:100,y:250,w:200,h:10}] },
+    { glassHeight: 160, target: 0.6, obstacles: [{x:200,y:200,w:80,h:10},{x:50,y:350,w:80,h:10}] },
+    { glassHeight: 160, target: 0.65, obstacles: [{x:100,y:250,w:80,h:10},{x:220,y:350,w:80,h:10}] },
+    { glassHeight: 180, target: 0.55, obstacles: [{x:180,y:250,w:80,h:10},{x:50,y:400,w:200,h:10}] },
+    { glassHeight: 180, target: 0.7, obstacles: [{x:150,y:250,w:100,h:10},{x:80,y:350,w:100,h:10},{x:220,y:450,w:100,h:10}] }
+  ];
+
+  let currentLevel = 1;
+
+  const glassX = WIDTH / 2 - 50;
+  const glassWidth = 100;
+
+  class WaterParticle {
+    constructor(x, y, vx, vy) {
+      this.x = x;
+      this.y = y;
+      this.vx = vx;
+      this.vy = vy;
+      this.alive = true;
+    }
+    update() {
+      this.vy += 0.1;
+      this.x += this.vx;
+      this.y += this.vy;
+      // Collision with obstacles
+      for (let obs of levels[currentLevel-1].obstacles) {
+        if (this.x > obs.x && this.x < obs.x + obs.w &&
+            this.y > obs.y && this.y < obs.y + obs.h) {
+          this.vy *= -0.3;
+          this.y = obs.y - 1;
+        }
+      }
+      if (this.y > HEIGHT) this.alive = false;
+    }
+    draw() {
+      ctx.fillStyle = '#00f';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawGlass() {
+    const levelData = levels[currentLevel-1];
+    const glassBottomY = HEIGHT - 50;
+    const glassTopY = glassBottomY - levelData.glassHeight;
+
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(glassX, glassTopY, glassWidth, levelData.glassHeight);
+
+    // Target fill line
+    const targetY = glassBottomY - levelData.target * levelData.glassHeight;
+    ctx.strokeStyle = 'red';
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath();
+    ctx.moveTo(glassX, targetY);
+    ctx.lineTo(glassX + glassWidth, targetY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Sad face
+    ctx.fillStyle = '#000';
+    const eyeY = glassTopY + 30;
+    ctx.beginPath();
+    ctx.arc(glassX + 25, eyeY, 5, 0, Math.PI * 2);
+    ctx.arc(glassX + 75, eyeY, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(glassX + 50, eyeY + 20, 15, Math.PI*0.1, Math.PI*0.9, true);
+    ctx.stroke();
+  }
+
+  function drawObstacles() {
+    ctx.fillStyle = '#964B00';
+    for (let obs of levels[currentLevel-1].obstacles) {
+      ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+    }
+  }
+
+  function spawnWater() {
+    const angle = Math.atan2(fingerY - 50, fingerX - WIDTH/2);
+    const speed = 2.5;
+    const vx = Math.cos(angle) * speed;
+    const vy = Math.sin(angle) * speed;
+    waterParticles.push(new WaterParticle(WIDTH/2, 50, vx, vy));
+  }
+
+  function update() {
+    ctx.clearRect(0, 0, WIDTH, HEIGHT);
+
+    drawGlass();
+    drawObstacles();
+
+    if (waterReleased) {
+      spawnWater();
+    }
+
+    for (let p of waterParticles) p.update();
+    waterParticles = waterParticles.filter(p => p.alive);
+    for (let p of waterParticles) p.draw();
+
+    // Check fill level
+    const levelData = levels[currentLevel-1];
+    const glassBottomY = HEIGHT - 50;
+    const glassTopY = glassBottomY - levelData.glassHeight;
+    let particlesInside = 0;
+    for (let p of waterParticles) {
+      if (p.x > glassX && p.x < glassX + glassWidth && p.y > glassTopY && p.y < glassBottomY) {
+        particlesInside++;
+      }
+    }
+    const maxParticles = 120;
+    waterLevel = Math.min(1, particlesInside / maxParticles);
+
+    if (waterLevel >= levelData.target - 0.02 && waterLevel <= levelData.target + 0.05 && waterReleased) {
+      levelComplete = true;
+      document.getElementById('message').textContent = 'Level Complete!';
+      waterReleased = false;
+    } else if (waterLevel > levelData.target + 0.05 && waterReleased) {
+      document.getElementById('message').textContent = 'Too much water! Reset.';
+      waterReleased = false;
+    }
+
+    requestAnimationFrame(update);
+  }
+
+  function resetLevel() {
+    waterParticles = [];
+    waterReleased = false;
+    levelComplete = false;
+    waterLevel = 0;
+    document.getElementById('message').textContent = '';
+  }
+
+  document.getElementById('releaseBtn').addEventListener('click', () => {
+    if (levelComplete) return;
+    waterReleased = true;
+  });
+  document.getElementById('resetBtn').addEventListener('click', resetLevel);
+  document.getElementById('nextBtn').addEventListener('click', () => {
+    if (currentLevel < levels.length) {
+      currentLevel++;
+      resetLevel();
+    }
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    fingerX = e.clientX - rect.left;
+    fingerY = e.clientY - rect.top;
+  });
+  canvas.addEventListener('pointerdown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    fingerX = e.clientX - rect.left;
+    fingerY = e.clientY - rect.top;
+  });
+
+  resetLevel();
+  update();
+})();
+</script>
+</body>
+</html>
